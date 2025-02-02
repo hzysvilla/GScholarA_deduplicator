@@ -84,6 +84,28 @@
 - **SCOPES**: The script uses the `https://www.googleapis.com/auth/gmail.modify` scope to modify Gmail messages (marking them as read after processing).
 - **EMAIL_QUERY**: The query string is set to fetch emails from `scholaralerts-noreply@google.com` that are unread. You can modify this if you need to fetch emails from a different source.
 
+## Code Structure
+
+- **`GScholarA_deduplicator.py`**: The main script that orchestrates fetching emails, parsing content, and saving to Excel.
+- **`get_email_body(payload)`**: Extracts the HTML body from the email payload.
+- **`parse_email_html(html_content)`**: Parses the HTML content to extract paper details.
+- **`wrap_snippet(snippet, words_per_line=13)`**: Wraps the snippet text for better readability in Excel.
+- **`save_to_excel(papers, email_count)`**: Saves the extracted papers to an Excel file with improved formatting.
+
+## Example Output
+
+The Excel file will have the following structure:
+
+- **Header**: "Paper Details" (formatted with bold white text on a blue background).
+- **Rows**: Each paper's title, authors, and snippet are listed in separate rows, with alternating background colors.
+- **Formatting**: The snippet text is wrapped, and the column width is adjusted to fit the content.
+
+Here is an example of the output:
+
+![Example Output Figure](./history/output.jpg)
+[Example Output File](./history/20250202_22-59-39_110_emails.xlsx)
+
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
