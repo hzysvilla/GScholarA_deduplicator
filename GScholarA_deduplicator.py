@@ -92,7 +92,7 @@ def save_to_excel(papers, email_count):
     alignment = Alignment(wrap_text=True, vertical='top')
     
     # Write headers
-    headers = ["Paper Details"]
+    headers = [f"Paper Details (Total: {len(papers)})"]
     for col_num, header in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col_num, value=header)
         cell.font = header_font
