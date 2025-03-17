@@ -10,6 +10,7 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+import google.auth.exceptions
 from collections import defaultdict
 from termcolor import colored
 
@@ -20,7 +21,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
 EMAIL_QUERY = 'from:scholaralerts-noreply@google.com is:unread'
 HISTORY_FOLDER = os.path.join(os.getcwd(), 'history')
-MAX_DUPNUM=128
+MAX_DUPNUM=256
 
 
 COLOR_PALETTE = [
@@ -151,66 +152,80 @@ def save_to_excel(papers, email_count):
     logging.info(f"Saved results to {file_path}")
 
 def main():
-  
     """Main function to fetch emails, parse content, and save to Excel."""
-    # Personal information printout with color
     personal_info = "Hello Zheyuan He (ecjgvmhc@gmail.com, KTH)"
     print(colored(personal_info, 'green'))
+
     creds = None
-    if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
-            creds = flow.run_local_server(port=0)
-        with open('token.json', 'w') as token:
-            token.write(creds.to_json())
+    token_path = 'token.json'
+
+    try:
+        if os.path.exists(token_path):
+            creds = Credentials.from_authorized_user_file(token_path, SCOPES)
+
+        if not creds or not creds.valid:
+            if creds and creds.expired and creds.refresh_token:
+                try:
+                    creds.refresh(Request())
+                except google.auth.exceptions.RefreshError:
+                    logging.error("Token has expired or been revoked. Deleting token.json and retrying...")
+                    os.remove(token_path)
+                    return main()  # Restart the program
+
+            else:
+                flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+                creds = flow.run_local_server(port=0)
+
+            with open(token_path, 'w') as token:
+                token.write(creds.to_json())
+
+    except Exception as e:
+        logging.error(f"Unexpected error during authentication: {e}")
+        return
 
     service = build('gmail', 'v1', credentials=creds)
     results = service.users().messages().list(userId='me', q=EMAIL_QUERY, maxResults=MAX_DUPNUM).execute()
     messages = results.get('messages', [])
-    
+
     if not messages:
         logging.info('No unread messages found from scholaralerts-noreply@google.com.')
-    else:
-        all_papers = []
-        for message in messages:
-            msg = service.users().messages().get(userId='me', id=message['id'], format='full').execute()
-            html_content = get_email_body(msg['payload'])
-            if html_content:
-                papers = parse_email_html(html_content)
-                all_papers.extend(papers)
+        return
 
-            service.users().messages().modify(
-                userId='me',
-                id=message['id'],
-                body={'removeLabelIds': ['UNREAD']}
-            ).execute()
-            logging.info(f"Marked message {message['id']} as read.")
-        
-        # Count occurrences of each paper
-        paper_counts = defaultdict(int)
+    all_papers = []
+    for message in messages:
+        msg = service.users().messages().get(userId='me', id=message['id'], format='full').execute()
+        html_content = get_email_body(msg['payload'])
+        if html_content:
+            papers = parse_email_html(html_content)
+            all_papers.extend(papers)
+
+        service.users().messages().modify(
+            userId='me',
+            id=message['id'],
+            body={'removeLabelIds': ['UNREAD']}
+        ).execute()
+        logging.info(f"Marked message {message['id']} as read.")
+
+    # Count occurrences of each paper
+    paper_counts = defaultdict(int)
+    for paper in all_papers:
+        key = (paper['title'], paper['authors'])
+        paper_counts[key] += 1
+
+    # Create a list of unique papers with their counts
+    unique_papers = []
+    for (title, authors), count in paper_counts.items():
         for paper in all_papers:
-            key = (paper['title'], paper['authors'])
-            paper_counts[key] += 1
-        
-        # Create a list of unique papers with their counts
-        unique_papers = []
-        for (title, authors), count in paper_counts.items():
-            for paper in all_papers:
-                if paper['title'] == title and paper['authors'] == authors:
-                    unique_papers.append({'title': title, 'authors': authors, 'snippet': paper['snippet'], 'count': count})
-                    break
-        
-        # Sort papers by count in descending order
-        unique_papers.sort(key=lambda x: x['count'], reverse=True)
-        
-        save_to_excel(unique_papers, len(messages))
+            if paper['title'] == title and paper['authors'] == authors:
+                unique_papers.append({'title': title, 'authors': authors, 'snippet': paper['snippet'], 'count': count})
+                break
+
+    # Sort papers by count in descending order
+    unique_papers.sort(key=lambda x: x['count'], reverse=True)
+
+    save_to_excel(unique_papers, len(messages))
+
 
 if __name__ == '__main__':
     main()
-
-
 
