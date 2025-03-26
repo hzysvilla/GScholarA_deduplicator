@@ -13,6 +13,8 @@ from googleapiclient.discovery import build
 import google.auth.exceptions
 from collections import defaultdict
 from termcolor import colored
+import re
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -23,6 +25,9 @@ EMAIL_QUERY = 'from:scholaralerts-noreply@google.com is:unread'
 HISTORY_FOLDER = os.path.join(os.getcwd(), 'history')
 MAX_DUPNUM=256
 
+HISTORY_FOLDER = os.path.join(os.getcwd(), 'history')
+
+
 
 COLOR_PALETTE = [
     PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid"),  # Light gray
@@ -30,6 +35,75 @@ COLOR_PALETTE = [
     PatternFill(start_color="FFE6E6", end_color="FFE6E6", fill_type="solid"),  # Light pink
     PatternFill(start_color="E6FFE6", end_color="E6FFE6", fill_type="solid"),  # Light green
 ]
+
+
+def get_latest_xlsx():
+    """Retrieve the latest xlsx file from the history folder."""
+    if not os.path.exists(HISTORY_FOLDER):
+        return None
+    
+    xlsx_files = [f for f in os.listdir(HISTORY_FOLDER) if f.endswith('.xlsx')]
+    if not xlsx_files:
+        return None
+    
+    # Sort files by modification time (newest first)
+    xlsx_files.sort(key=lambda f: os.path.getmtime(os.path.join(HISTORY_FOLDER, f)), reverse=True)
+    return os.path.join(HISTORY_FOLDER, xlsx_files[0])
+
+
+def clean_title(title):
+    """Remove the 'Titlexxx:' prefix and trailing counter from title."""
+    match = re.match(r'^Title\d*:\s*(.+)', title)  # 匹配 Title 开头的部分
+    if match:
+        title = match.group(1)  # 提取真正的标题部分
+
+    title = re.sub(r'\s*\(\d+\)$', '', title)  # 移除标题末尾的 (3) 之类的计数
+    return title.strip()
+
+
+def extract_titles_from_xlsx(file_path):
+    """Extract paper titles from an existing xlsx file."""
+    try:
+        wb = openpyxl.load_workbook(file_path, data_only=True)
+        ws = wb.active
+        existing_titles = set()
+
+        for row in ws.iter_rows(values_only=True):
+            for cell in row:
+                # print(cell)
+                # print(isinstance(cell,str),cell.strip().lower().startswith("title"))
+                if isinstance(cell, str) and cell.strip().lower().startswith("title"):
+                    # print(cell)
+                    title_clean = clean_title(cell.strip())  # 清理 title
+                    existing_titles.add(title_clean)
+
+        wb.close()
+        return existing_titles
+    except Exception as e:
+        logging.error(f"Error reading xlsx file {file_path}: {e}")
+        return set()
+
+
+def filter_existing_papers(papers):
+    """Filter out papers that already exist in the latest history xlsx."""
+    latest_xlsx = get_latest_xlsx()
+    if not latest_xlsx:
+        return papers  # No history file, return all papers
+    
+    existing_titles = extract_titles_from_xlsx(latest_xlsx)
+    # print("zhedebig1",existing_titles)
+    filtered_papers = []
+    for paper in papers:
+        title = paper['title']
+        cleaned_title = clean_title(title)
+        # print("zhedebig2",cleaned_title,cleaned_title not in existing_titles)
+        if cleaned_title not in existing_titles:
+            filtered_papers.append(paper)
+    
+    logging.info(f"Filtered out {len(papers) - len(filtered_papers)} existing papers.")
+    return filtered_papers
+
+
 
 def get_email_body(payload):
     """Extract the HTML body from the email payload."""
@@ -222,10 +296,11 @@ def main():
 
     # Sort papers by count in descending order
     unique_papers.sort(key=lambda x: x['count'], reverse=True)
-
+    unique_papers = filter_existing_papers(unique_papers)
     save_to_excel(unique_papers, len(messages))
 
 
 if __name__ == '__main__':
     main()
+    # extract_titles_from_xlsx(r"D:\Projects\gmail_spiders\history\20250324_11-41-51_1_emails.xlsx")
 
